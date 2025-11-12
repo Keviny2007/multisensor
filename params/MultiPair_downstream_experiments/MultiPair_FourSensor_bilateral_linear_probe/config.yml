@@ -1,0 +1,85 @@
+# Config for 4-sensor sleep-wake classification with LTA2V
+# TRUE LINEAR PROBING: Frozen LTA2V features + single linear layer
+# Using bilateral pairing strategy: (RW + LW) vs (RL + LL)
+
+# Train command
+TRAIN_COMMAND: [ python, train.py ]
+LOO_CV_COMMAND: [python, loo_cross_validation.py]
+
+CLASSES:
+  - { label: 0,  name: "Wake" }
+  - { label: 1,  name: "Sleep" }
+
+# --- Information about data
+# Path to training dataset (processed 4-sensor data)
+TRAIN_DATA: data/processed_test_data
+
+# Amount of training data used for validation (between 0 and 1)
+VALID_SPLIT: test
+
+# List of subjects to use for LOSO testing
+TEST_SUBJECTS: null
+SEED: 42
+
+NUM_WORKERS: 5  # Num of workers for data loading
+NUM_GPUS: [0]  # How many GPUs to use (0 for CPU)
+WANDB: False
+WANDB_KEY: '<Put wandb key here>'
+
+
+DATASET: MultiPairSTFT
+DATASET_ARGS:
+  # All 12 channels: RW_x, RW_y, RW_z, LW_x, LW_y, LW_z, RL_x, RL_y, RL_z, LL_x, LL_y, LL_z
+  x_columns: [[RW_x, RW_y, RW_z, LW_x, LW_y, LW_z, RL_x, RL_y, RL_z, LL_x, LL_y, LL_z]]
+  y_column: [label]
+  padding_val: [0.0]
+  # 50==1sec ==> 3000==60sec==1min ==> 180000==1hour
+  # Using 30 hours like LTA2V (5_400_000 samples at 50Hz)
+  sequence_length: [5_400_000]  # Window size (in samples) fed into the model
+  frame_shift: [null]  # How much to shift a window (in samples), null=same as sequence_length
+  normalize: [True]  # Whether to normalize the training data
+  source_freq: [100]  # Your data is ~100Hz
+  target_freq: [50]  # Downsample to 50Hz (what LTA2V was trained on)
+  n_fft: [256]
+  hop_length: [128]
+  stack_axes: [True]
+  phase: [False]  # Only magnitude, no phase
+  drop_labels: [[]]
+  windowed_labels_kind: ['argmax']
+  pairing_strategy: ['bilateral']  # Options: 'bilateral', 'ipsilateral', 'diagonal'
+
+# --- Information about task
+ALGORITHM: MultiPairDownstreamMLP
+# Hyperparams for downstream training
+# (all given as lists in case to perform a GridSearch)
+ALGORITHM_ARGS:
+  epochs: [60]
+  batch_size: [2]  # Small batch size due to large sequence length
+  loss: [CrossEntropyLoss]
+  optimizer: [Adam]
+  weight_decay: [0.0]
+  learning_rate: [0.001]  # Slightly higher LR for linear probe
+  n_prediction_head_layers: [1]  # TRUE LINEAR PROBE: Just 1 layer
+  dim_prediction_head: [128]  # Hidden dim (not used when n_layers=1)
+  output_activation: [Identity]
+  output_dim: [2]  # Binary classification (Wake/Sleep)
+  input_dim: [12]  # 12 input channels (4 sensors × 3 axes)
+  metrics: [[Accuracy, Recall, F1Score]]
+
+  # Upstream model configuration
+  upstream_algorithm: [TransformerEncoderNetwork]
+  upstream_model_path: [params/LTA2V_upstream/upstream_model.ckpt]
+  rmv_upstream_layers: [1]
+  weighted_sum_layer: [null]
+  rmv_GPE: [False]  # Keep global positional encoding
+  fine_tune_step: [1.0]  # FROZEN: Never unfreeze upstream model
+  random_weight_init: [False]
+
+  val_after_nth_step: [100]
+
+FOLDS: 0  # 0 = LOSO cross-validation
+TEST_SPLIT: null
+SKIP_FINISHED_ARGS: False
+STORE_CMATS: True
+PROJ_NAME: 'MultiPair_LinearProbe'
+EVAL_METRIC: 'average_f1score'

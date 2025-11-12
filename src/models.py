@@ -12,7 +12,7 @@ import pytorch_lightning as pl
 def get_model(algorithm_name, algorithm_args):
     allowed_models = ['TransformerEncoderNetwork',
                       'DownstreamMLP', 'MLP', 'DeepConvLSTM',
-                      'LSTMNetwork', 'CNN']
+                      'LSTMNetwork', 'CNN', 'MultiPairDownstreamMLP']
     if algorithm_name in allowed_models:
         cls = getattr(sys.modules[__name__], algorithm_name)
         return cls(algorithm_args)
@@ -24,7 +24,7 @@ def get_model_class(algorithm_name):
     '''Returns the class without creating an object'''
     allowed_models = ['TransformerEncoderNetwork',
                       'DownstreamMLP', 'MLP', 'DeepConvLSTM',
-                      'LSTMNetwork', 'CNN']
+                      'LSTMNetwork', 'CNN', 'MultiPairDownstreamMLP']
     if algorithm_name in allowed_models:
         cls = getattr(sys.modules[__name__], algorithm_name)
         return cls
@@ -189,6 +189,8 @@ class DownstreamMLP(pl.LightningModule):
         self.fine_tune_step = args['fine_tune_step']
         self.total_step_count = args['total_step_count']
         assert 0 <= self.fine_tune_step <= 1
+
+        # Input Size
         ph_dim = self._get_upstream_output_dim(input_dim=args['input_dim'],
                                                sequence_length=args['sequence_length'])
         self.prediction_head = get_pred_head(
@@ -197,6 +199,7 @@ class DownstreamMLP(pl.LightningModule):
             hidden_dim=args['dim_prediction_head'],
             output_dim=args['output_dim']
         )
+        # ========
         self.automatic_optimization = False
         self.algorithm_args = args
         self.criterion = get_loss(args['loss'])
@@ -328,6 +331,134 @@ class DownstreamMLP(pl.LightningModule):
             ).shape[-1]
         if self.branch_merge_operation == 'concat':
             ph_dim = ph_dim * self.upstream_branches
+        return ph_dim
+
+    def configure_optimizers(self):
+        return config_optimizers(self.algorithm_args, self.parameters)
+
+class MultiPairDownstreamMLP(pl.LightningModule):
+    def __init__(self, args):
+        super().__init__()
+
+        # Two upstream models (pair1, pair2)
+        self.upstream_models = torch.nn.ModuleList([
+            UpstreamModel(
+                algorithm_name=args['upstream_algorithm'],
+                model_path=args['upstream_model_path'],
+                cut_layers=args['rmv_upstream_layers'],
+                weighted_sum_layer=args['weighted_sum_layer'],
+                random_weight_init=args.get('random_weight_init', False),
+                rmv_GPE=args.get('rmv_GPE', False)
+            ) for _ in range(2)
+        ])
+        for um in self.upstream_models: um.freeze()
+
+        self.fine_tune_step = args['fine_tune_step']
+        self.total_step_count = args['total_step_count']
+
+        ph_dim = self._get_upstream_output_dim(args['input_dim'], args['sequence_length'])
+
+        # Downstream MLP takes concatenated latent features
+        self.prediction_head = get_pred_head(
+            num_layers=args['n_prediction_head_layers'],
+            input_dim=ph_dim * 2,
+            hidden_dim=args['dim_prediction_head'],
+            output_dim=args['output_dim']
+        )
+
+        self.criterion = get_loss(args['loss'])
+        self.output_activation = get_activation(args['output_activation'])
+        self.metrics = init_metrics(args['metrics'], args)
+        self.val_metrics = init_metrics(args['metrics'], args)
+        self.algorithm_args = args
+        self.save_hyperparameters()
+        self.n_steps = 0
+        self.automatic_optimization = False
+
+    def forward(self, pair1, pair2):
+        latent = self.upstream_feature_extraction(pair1, pair2)
+        logits = self.prediction_head(latent)
+        y_hat = self.output_activation(logits, dim=-1)
+        return y_hat
+
+    def upstream_feature_extraction(self, pair1, pair2):
+        feat1 = self.upstream_models[0](pair1)
+        feat2 = self.upstream_models[1](pair2)
+        return torch.cat([feat1, feat2], dim=-1)
+
+    def training_step(self, train_batch, batch_idx):
+        self.n_steps += 1
+        progress = self.n_steps/self.total_step_count
+        if self.upstream_models[0].frozen and progress > self.fine_tune_step:
+            print('Unfreeze upstream_model')
+            for um in self.upstream_models: um.unfreeze()
+        opt = self.optimizers()
+        # Unpack batch: dataset returns (pair1, pair2, y) or (pair1, pair2, y, mask)
+        if len(train_batch) == 3:
+            pair1, pair2, y = train_batch
+            mask = torch.ones(y.shape[:2]).to(y.device)
+        else:
+            pair1, pair2, y, mask = train_batch
+        # Extract features from both sensor pairs
+        latent = self.upstream_feature_extraction(pair1, pair2)
+        y_hat = self.prediction_head(latent)
+        # Ignore padded labels during loss computation:
+        loss = self.criterion(y_hat, y, reduction='none')*mask
+        # Compute own mean with mask
+        loss = loss.sum()/mask.sum()
+        ##### Optimization #####
+        opt.zero_grad()
+        self.manual_backward(loss)
+        sch = self.lr_schedulers()
+        opt.step()
+        if sch is not None: sch.step()
+        ##### Logging #####
+        self.log('train_loss', loss, prog_bar=True)
+        self.log_dict({'lr': opt.param_groups[0]['lr']}, prog_bar=False)
+        self._log_metrics(y, y_hat, self.metrics, step_call='train')
+
+    def validation_step(self, val_batch, batch_idx):
+        # Unpack batch: dataset returns (pair1, pair2, y) or (pair1, pair2, y, mask)
+        if len(val_batch) == 3:
+            pair1, pair2, y = val_batch
+            mask = torch.ones(y.shape[:2]).to(y.device)
+        else:
+            pair1, pair2, y, mask = val_batch
+        # Extract features from both sensor pairs
+        latent = self.upstream_feature_extraction(pair1, pair2)
+        y_hat = self.prediction_head(latent)
+        # Ignore padded labels during loss computation:
+        loss = self.criterion(y_hat, y, reduction='none')*mask
+        # Compute own mean with mask
+        loss = loss.sum()/mask.sum()
+        self.log('val_loss', loss, prog_bar=True)
+        self._log_metrics(y, y_hat, self.val_metrics, step_call='val')
+
+    def _log_metrics(self, y, y_hat, metrics_list, step_call):
+        for metric in metrics_list:
+            if type(metric) == torchmetrics.KLDivergence:
+                # Compute softmax for pred to get probs
+                y_hat_prob = self.output_activation(y_hat, dim=1)
+                # Stack batches and sequences for KLD
+                metric(einops.rearrange(y, 'N S C -> (N S) C'),
+                       einops.rearrange(y_hat_prob, 'N S C -> (N S) C'))
+            else:
+                if len(y_hat.shape)==3:
+                    metric(einops.rearrange(y_hat, 'N S C -> N C S'), y)
+                else:
+                    metric(y_hat, y)
+            self.log(
+                step_call+'_'+str(metric),
+                metric,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True
+            )
+
+    def _get_upstream_output_dim(self, input_dim, sequence_length=1):
+        ph_dim = self.upstream_models[0](
+            torch.rand([1, sequence_length, input_dim // 2])
+        ).shape[-1]
         return ph_dim
 
     def configure_optimizers(self):

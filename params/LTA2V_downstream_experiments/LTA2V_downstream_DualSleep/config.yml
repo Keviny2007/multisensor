@@ -14,7 +14,7 @@ CLASSES:
 
 # --- Information about data
 # Path to training dataset 
-TRAIN_DATA: /path/to/DualSleep
+TRAIN_DATA: /data/dualsleep
 
 # Amount of training data used for validation (between 0 and 1)
 VALID_SPLIT: test
@@ -24,7 +24,7 @@ TEST_SUBJECTS: null
 SEED: 42
 
 NUM_WORKERS: 5  # Num of workers for data loading
-NUM_GPUS: [1]  # How many GPUs to use
+NUM_GPUS: [0]  # How many GPUs to use
 WANDB: False
 WANDB_KEY: '<Put wandb key here>'
 
@@ -57,7 +57,7 @@ ALGORITHM: DownstreamMLP
 # (all given as lists in case to perform a GridSearch)
 ALGORITHM_ARGS:
   epochs: [60]
-  batch_size: [1]
+  batch_size: [32]
   loss: [CrossEntropyLoss]
   optimizer: [Adam]
   weight_decay: [0.0]
