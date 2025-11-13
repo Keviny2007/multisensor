@@ -38,6 +38,7 @@ DATASET_ARGS:
   sequence_length: [5_400_000]  # Window size (in samples) fed into the model
   frame_shift: [null]  # How much to shift a window (in samples), null=same as sequence_length
   normalize: [True]  # Whether to normalize the training data
+  force_norm_comp: [True]  # Force recomputation of normalization params (don't use DualSleep's)
   source_freq: [100]  # Your data is ~100Hz
   target_freq: [50]  # Downsample to 50Hz (what LTA2V was trained on)
   n_fft: [256]
@@ -71,7 +72,7 @@ ALGORITHM_ARGS:
   upstream_model_path: [params/LTA2V_upstream/upstream_model.ckpt]
   rmv_upstream_layers: [1]
   weighted_sum_layer: [null]
-  rmv_GPE: [False]  # Keep global positional encoding
+  rmv_GPE: [True]  # Remove global positional encoding (we don't have timestamps)
   fine_tune_step: [1.0]  # FROZEN: Never unfreeze upstream model
   random_weight_init: [False]
 

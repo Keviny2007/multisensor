@@ -19,9 +19,9 @@ echo "Start time: $(date)"
 echo "Working directory: $(pwd)"
 
 # Load modules (adjust based on OSCAR's available modules)
-module load python/3.10.8
-module load cuda/11.8
-module load cudnn/8.6
+# module load python/3.10.8
+# module load cuda/11.8
+# module load cudnn/8.6
 
 # Create logs directory if it doesn't exist
 mkdir -p logs
@@ -35,13 +35,17 @@ fi
 # Activate virtual environment
 source .venv/bin/activate
 
-# Upgrade pip
-pip install --upgrade pip
+# Install uv (fast package installer)
+echo "Installing uv..."
+pip install uv
 
-# Install requirements (skip ray for Python 3.10+)
-echo "Installing requirements..."
+# Upgrade pip using uv
+uv pip install --upgrade pip
+
+# Install requirements using uv (skip ray for Python 3.10+)
+echo "Installing requirements with uv..."
 grep -v "ray==" requirements.txt > requirements_no_ray.txt
-pip install -r requirements_no_ray.txt
+uv pip install -r requirements_no_ray.txt
 
 # Verify GPU availability
 echo "Checking GPU availability..."

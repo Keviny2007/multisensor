@@ -340,6 +340,9 @@ class MultiPairDownstreamMLP(pl.LightningModule):
     def __init__(self, args):
         super().__init__()
 
+        # Store args early so _get_upstream_output_dim can access them
+        self.algorithm_args = args
+
         # Two upstream models (pair1, pair2)
         self.upstream_models = torch.nn.ModuleList([
             UpstreamModel(
@@ -370,7 +373,6 @@ class MultiPairDownstreamMLP(pl.LightningModule):
         self.output_activation = get_activation(args['output_activation'])
         self.metrics = init_metrics(args['metrics'], args)
         self.val_metrics = init_metrics(args['metrics'], args)
-        self.algorithm_args = args
         self.save_hyperparameters()
         self.n_steps = 0
         self.automatic_optimization = False
@@ -456,9 +458,31 @@ class MultiPairDownstreamMLP(pl.LightningModule):
             )
 
     def _get_upstream_output_dim(self, input_dim, sequence_length=1):
-        ph_dim = self.upstream_models[0](
-            torch.rand([1, sequence_length, input_dim // 2])
-        ).shape[-1]
+        # Each pair gets half the channels
+        # input_dim is total channels (12), each pair gets 6
+        channels_per_pair = input_dim // 2
+
+        # Get STFT params
+        n_fft = self.algorithm_args.get('n_fft', 3000)
+        hop_length = self.algorithm_args.get('hop_length', 1500)
+
+        # Calculate dimensions
+        freq_bins = n_fft // 2 + 1  # 1501 for n_fft=3000
+        stft_features = freq_bins * channels_per_pair  # 1501 * 6 = 9006
+        stft_seq_length = sequence_length // hop_length - 1
+
+        print(f"DEBUG _get_upstream_output_dim:")
+        print(f"  channels_per_pair: {channels_per_pair}")
+        print(f"  freq_bins: {freq_bins}")
+        print(f"  stft_features: {stft_features}")
+        print(f"  stft_seq_length: {stft_seq_length}")
+
+        # Test with dummy input matching what dataset produces
+        dummy_input = torch.rand([1, stft_seq_length, stft_features])
+        print(f"  dummy_input shape: {dummy_input.shape}")
+        ph_dim = self.upstream_models[0](dummy_input).shape[-1]
+        print(f"  output dim: {ph_dim}")
+
         return ph_dim
 
     def configure_optimizers(self):

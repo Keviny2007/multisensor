@@ -6,7 +6,7 @@ import src.datasets
 import torch
 import numpy as np
 import random
-from ray import tune
+# from ray import tune
 
 def loso_cv(config, dataset_path=None, hopt=False):
     '''Starts a leave-one-out cross validation'''

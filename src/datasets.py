@@ -1620,27 +1620,30 @@ class MultiPairSTFTDataset(HARDataset):
         return _s
 
     def collate_fn(self, data):
-        '''Custom collate_fn for different sequence lengths in a batch'''
-        if self.ts_data:
-            x = torch.nn.utils.rnn.pad_sequence([d[0][0] for d in data],
+        '''Custom collate_fn for MultiPair data: (pair1, pair2, y) tuples'''
+        print(f"DEBUG: MultiPairSTFTDataset.collate_fn called!")
+        print(f"  Batch size: {len(data)}")
+        print(f"  First item type: {type(data[0])}, length: {len(data[0])}")
+        if len(data[0]) >= 1:
+            print(f"  data[0][0] shape (pair1): {data[0][0].shape}")
+        if len(data[0]) >= 2:
+            print(f"  data[0][1] shape (pair2): {data[0][1].shape}")
+        # data is a list of (pair1, pair2, y) tuples
+        pair1 = torch.nn.utils.rnn.pad_sequence([d[0] for d in data],
                                                 batch_first=True,
                                                 padding_value=0.0)
-            a = torch.nn.utils.rnn.pad_sequence([d[0][1] for d in data],
+        pair2 = torch.nn.utils.rnn.pad_sequence([d[1] for d in data],
                                                 batch_first=True,
                                                 padding_value=0.0)
-            x = [x,a]
-        else:
-            x = torch.nn.utils.rnn.pad_sequence([d[0] for d in data],
-                                                batch_first=True,
-                                                padding_value=0.0)
-        y = torch.nn.utils.rnn.pad_sequence([d[1] for d in data],
+        y = torch.nn.utils.rnn.pad_sequence([d[2] for d in data],
                                             batch_first=True,
                                             padding_value=0)
-        # 0s where padding applied
+        # Create mask for padded positions
         mask = torch.ones(y.shape[:2])
         for i in range(len(mask)):
-            mask[i][len(data[i][1]):] = 0.0
-        return [x, y, mask]
+            mask[i][len(data[i][2]):] = 0.0
+        print(f"  Returning: pair1 {pair1.shape}, pair2 {pair2.shape}, y {y.shape}, mask {mask.shape}")
+        return [pair1, pair2, y, mask]
 
 
 class HUNT4Dataset(torch.utils.data.Dataset):
