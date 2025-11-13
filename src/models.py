@@ -458,16 +458,22 @@ class MultiPairDownstreamMLP(pl.LightningModule):
             )
 
     def _get_upstream_output_dim(self, input_dim, sequence_length=1):
-        # Each pair gets half the channels
-        # input_dim is total channels (12), each pair gets 6
-        channels_per_pair = input_dim // 2
-
         # Get STFT params
         n_fft = self.algorithm_args.get('n_fft', 3000)
         hop_length = self.algorithm_args.get('hop_length', 1500)
+        freq_bins = n_fft // 2 + 1  # 1501 for n_fft=3000
+
+        # input_dim gets overridden by train.py to be STFT feature_dim (18012)
+        # But we need raw channel count (12). Reverse-calculate from STFT features.
+        if input_dim > 100:  # Heuristic: if large, it's STFT features not raw channels
+            # input_dim = freq_bins * num_channels (e.g., 1501 * 12 = 18012)
+            num_raw_channels = input_dim // freq_bins  # 18012 // 1501 = 12
+            channels_per_pair = num_raw_channels // 2  # 12 // 2 = 6
+        else:
+            # input_dim is raw channel count
+            channels_per_pair = input_dim // 2
 
         # Calculate dimensions
-        freq_bins = n_fft // 2 + 1  # 1501 for n_fft=3000
         stft_features = freq_bins * channels_per_pair  # 1501 * 6 = 9006
         stft_seq_length = sequence_length // hop_length - 1
 
