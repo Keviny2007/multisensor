@@ -58,7 +58,7 @@ ALGORITHM_ARGS:
   learning_rate: [0.001]
   n_prediction_head_layers: [1]
   dim_prediction_head: [128]
-  output_activation: [Identity]
+  output_activation: [identity]  # Lowercase for ActivationList
   output_dim: [2]
   input_dim: [12]
   metrics: [[Accuracy, Recall, F1Score]]
