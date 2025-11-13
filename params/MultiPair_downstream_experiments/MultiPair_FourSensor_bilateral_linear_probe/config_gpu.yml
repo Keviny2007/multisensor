@@ -76,6 +76,10 @@ ALGORITHM_ARGS:
   fine_tune_step: [1.0]  # FROZEN: Never unfreeze upstream model
   random_weight_init: [False]
 
+  # STFT parameters (must match DATASET_ARGS)
+  n_fft: [256]
+  hop_length: [128]
+
   val_after_nth_step: [100]
 
 FOLDS: 0  # 0 = LOSO cross-validation
