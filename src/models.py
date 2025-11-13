@@ -1102,8 +1102,20 @@ class UpstreamModel(pl.LightningModule):
             print('Use random weights for upstream model')
             cp_model = model_cls(cp_model.algorithm_args)
         if cut_layers>0:
+            # Get only the forward path modules, not auxiliary ones (metrics, criterion, etc.)
+            # For TransformerEncoderNetwork: emb, transformer_encoder, prediction_head
+            forward_modules = []
+            for name, module in cp_model.named_children():
+                # Skip non-forward modules
+                if name in ['criterion', 'output_activation', 'metrics', 'val_metrics', 'test_metrics']:
+                    continue
+                forward_modules.append(module)
+
+            # Remove last N layers
+            forward_modules = forward_modules[:-cut_layers] if cut_layers > 0 else forward_modules
+
             self.upstream_model = []
-            for i, l in enumerate(list(cp_model.children())[:-cut_layers]):
+            for i, l in enumerate(forward_modules):
                 if type(l)==InputEmbeddingPosEncoding and rmv_GPE:
                     new_dict_ie={'input_dim':l.lin_proj_layer.in_features,
                                  'd_model':l.lin_proj_layer.out_features,
