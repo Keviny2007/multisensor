@@ -59,7 +59,8 @@ ALGORITHM_ARGS:
   loss: [CrossEntropyLoss]
   optimizer: [Adam]
   weight_decay: [0.0]
-  learning_rate: [0.001]  # Slightly higher LR for linear probe
+  lr: [0.001]  # Slightly higher LR for linear probe
+  lr_scheduler: [null]  # No LR scheduling for linear probe
   n_prediction_head_layers: [1]  # TRUE LINEAR PROBE: Just 1 layer
   dim_prediction_head: [128]  # Hidden dim (not used when n_layers=1)
   output_activation: [identity]  # Lowercase for ActivationList
