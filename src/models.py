@@ -461,7 +461,10 @@ class MultiPairDownstreamMLP(pl.LightningModule):
             pair1, pair2, _, _ = batch
         else:
             pair1, pair2 = batch
-        return self.forward(pair1, pair2)
+        y_hat = self.forward(pair1, pair2)
+        # Flatten batch and time dimensions to allow variable-length concatenation
+        # Shape: [batch, time, classes] -> [batch*time, classes]
+        return y_hat.reshape(-1, y_hat.shape[-1])
 
     def _log_metrics(self, y, y_hat, metrics_list, step_call):
         for metric in metrics_list:
