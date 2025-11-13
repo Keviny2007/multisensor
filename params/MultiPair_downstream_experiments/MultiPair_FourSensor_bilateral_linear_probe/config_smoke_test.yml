@@ -1,0 +1,82 @@
+# SMOKE TEST CONFIG - Quick test before running full LOSO
+# Reduced epochs, smaller sequence length, fewer folds
+
+# Train command
+TRAIN_COMMAND: [ python, train.py ]
+LOO_CV_COMMAND: [python, loo_cross_validation.py]
+
+CLASSES:
+  - { label: 0,  name: "Wake" }
+  - { label: 1,  name: "Sleep" }
+
+# --- Information about data
+# Path to training dataset (processed 4-sensor data)
+TRAIN_DATA: data/processed_test_data
+
+# Amount of training data used for validation (between 0 and 1)
+VALID_SPLIT: test
+
+# List of subjects to use for LOSO testing
+TEST_SUBJECTS: null
+SEED: 42
+
+NUM_WORKERS: 4  # Reduced for smoke test
+NUM_GPUS: [0]
+WANDB: False
+WANDB_KEY: '<Put wandb key here>'
+
+
+DATASET: MultiPairSTFT
+DATASET_ARGS:
+  # All 12 channels: RW_x, RW_y, RW_z, LW_x, LW_y, LW_z, RL_x, RL_y, RL_z, LL_x, LL_y, LL_z
+  x_columns: [[RW_x, RW_y, RW_z, LW_x, LW_y, LW_z, RL_x, RL_y, RL_z, LL_x, LL_y, LL_z]]
+  y_column: [label]
+  padding_val: [0.0]
+  # SMOKE TEST: Using 10 minutes of data (30,000 samples at 50Hz) instead of 30 hours
+  sequence_length: [30_000]  # ~10 minutes at 50Hz (vs 30 hours in production)
+  frame_shift: [null]
+  normalize: [True]
+  force_norm_comp: [True]
+  source_freq: [100]
+  target_freq: [50]
+  n_fft: [3000]  # Must match LTA2V pre-training
+  hop_length: [1500]  # Must match LTA2V pre-training
+  stack_axes: [True]
+  phase: [False]
+  drop_labels: [[]]
+  windowed_labels_kind: ['argmax']
+  pairing_strategy: ['bilateral']
+
+# --- Information about task
+ALGORITHM: MultiPairDownstreamMLP
+ALGORITHM_ARGS:
+  epochs: [2]  # SMOKE TEST: Only 2 epochs (vs 60 in production)
+  batch_size: [4]
+  loss: [CrossEntropyLoss]
+  optimizer: [Adam]
+  weight_decay: [0.0]
+  learning_rate: [0.001]
+  n_prediction_head_layers: [1]
+  dim_prediction_head: [128]
+  output_activation: [Identity]
+  output_dim: [2]
+  input_dim: [12]
+  metrics: [[Accuracy, Recall, F1Score]]
+
+  # Upstream model configuration
+  upstream_algorithm: [TransformerEncoderNetwork]
+  upstream_model_path: [params/LTA2V_upstream/upstream_model.ckpt]
+  rmv_upstream_layers: [1]
+  weighted_sum_layer: [null]
+  rmv_GPE: [True]
+  fine_tune_step: [1.0]
+  random_weight_init: [False]
+
+  val_after_nth_step: [10]  # SMOKE TEST: Validate more frequently
+
+FOLDS: 2  # SMOKE TEST: Only 2-fold CV (vs LOSO=0 in production)
+TEST_SPLIT: null
+SKIP_FINISHED_ARGS: False
+STORE_CMATS: False  # SMOKE TEST: Don't store cmats
+PROJ_NAME: 'MultiPair_LinearProbe_SmokeTest'
+EVAL_METRIC: 'average_f1score'
