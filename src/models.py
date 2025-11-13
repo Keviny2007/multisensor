@@ -436,6 +436,33 @@ class MultiPairDownstreamMLP(pl.LightningModule):
         self.log('val_loss', loss, prog_bar=True)
         self._log_metrics(y, y_hat, self.val_metrics, step_call='val')
 
+    def test_step(self, test_batch, batch_idx):
+        # Unpack batch: dataset returns (pair1, pair2, y) or (pair1, pair2, y, mask)
+        if len(test_batch) == 3:
+            pair1, pair2, y = test_batch
+            mask = torch.ones(y.shape[:2]).to(y.device)
+        else:
+            pair1, pair2, y, mask = test_batch
+        # Extract features from both sensor pairs
+        latent = self.upstream_feature_extraction(pair1, pair2)
+        y_hat = self.prediction_head(latent)
+        # Ignore padded labels during loss computation:
+        loss = self.criterion(y_hat, y, reduction='none')*mask
+        # Compute own mean with mask
+        loss = loss.sum()/mask.sum()
+        self.log('test_loss', loss, prog_bar=True)
+        self._log_metrics(y, y_hat, self.val_metrics, step_call='test')
+
+    def predict_step(self, batch, batch_idx):
+        # Unpack batch for prediction
+        if len(batch) == 3:
+            pair1, pair2, _ = batch
+        elif len(batch) == 4:
+            pair1, pair2, _, _ = batch
+        else:
+            pair1, pair2 = batch
+        return self.forward(pair1, pair2)
+
     def _log_metrics(self, y, y_hat, metrics_list, step_call):
         for metric in metrics_list:
             if type(metric) == torchmetrics.KLDivergence:
