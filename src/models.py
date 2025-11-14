@@ -473,9 +473,9 @@ class MultiPairDownstreamMLP(pl.LightningModule):
             # Pad with zeros on the right: [batch, time, classes] -> [batch, time+pad, classes]
             y_hat = torch.nn.functional.pad(y_hat, (0, 0, 0, pad_len), value=0)
 
-        # Squeeze batch dimension (batch_size=1 during prediction)
-        # Shape: [1, time, classes] -> [time, classes]
-        return y_hat.squeeze(0)
+        # Keep batch dimension! torch.cat([1,19,2], [1,19,2], ...) → [N,19,2]
+        # DON'T squeeze - post_proc_y needs [num_windows, time, classes]
+        return y_hat
 
     def _log_metrics(self, y, y_hat, metrics_list, step_call):
         for metric in metrics_list:
