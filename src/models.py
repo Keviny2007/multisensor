@@ -461,10 +461,21 @@ class MultiPairDownstreamMLP(pl.LightningModule):
             pair1, pair2, _, _ = batch
         else:
             pair1, pair2 = batch
-        y_hat = self.forward(pair1, pair2)
-        # Flatten batch and time dimensions to allow variable-length concatenation
-        # Shape: [batch, time, classes] -> [batch*time, classes]
-        return y_hat.reshape(-1, y_hat.shape[-1])
+        y_hat = self.forward(pair1, pair2)  # [1, time, classes]
+
+        # Store as attribute to track expected sequence length
+        if not hasattr(self, '_expected_seq_len'):
+            self._expected_seq_len = y_hat.shape[1]
+
+        # Pad shorter sequences to expected length (handles variable-length batches)
+        if y_hat.shape[1] < self._expected_seq_len:
+            pad_len = self._expected_seq_len - y_hat.shape[1]
+            # Pad with zeros on the right: [batch, time, classes] -> [batch, time+pad, classes]
+            y_hat = torch.nn.functional.pad(y_hat, (0, 0, 0, pad_len), value=0)
+
+        # Squeeze batch dimension (batch_size=1 during prediction)
+        # Shape: [1, time, classes] -> [time, classes]
+        return y_hat.squeeze(0)
 
     def _log_metrics(self, y, y_hat, metrics_list, step_call):
         for metric in metrics_list:
