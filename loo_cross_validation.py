@@ -82,6 +82,14 @@ def loso_cv(config, dataset_path=None, hopt=False):
                 all_test_true += list(test_cmat[test_filename].y_true)
                 all_test_pred += list(test_cmat[test_filename].y_pred)
         fold_performances.append(np.mean([getattr(_c, config.EVAL_METRIC) for _c in test_cmat.values()]))
+        # Print detailed per-subject metrics
+        for test_filename, cmat in test_cmat.items():
+            print(f"\n=== {test_filename} ===")
+            print(f"  Accuracy: {cmat.accuracy:.4f}")
+            print(f"  F1 Scores: {cmat.f1score}")
+            print(f"  Recall: {cmat.recall}")
+            print(f"  Precision: {cmat.precision}")
+            print(f"  Confusion Matrix:\n{cmat.cmat}")
         if config.STORE_CMATS:
             to_store_path = f'{config.CONFIG_PATH}/loso_cmats/' if config.FOLDS==0 \
                        else f'{config.CONFIG_PATH}/CV_folds{config.FOLDS}_cmats/'
