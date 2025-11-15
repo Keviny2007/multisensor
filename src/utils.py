@@ -10,6 +10,62 @@ import src.resamplers
 import torchmetrics
 
 
+def compute_class_weights(dataset, num_classes, device='cpu'):
+    """
+    Compute class weights for handling imbalanced datasets.
+    Uses inverse class frequency (balanced weighting).
+
+    Parameters
+    ----------
+    dataset : torch.utils.data.Dataset
+        The training dataset
+    num_classes : int
+        Number of classes
+    device : str
+        Device to put the weights tensor on ('cpu' or 'cuda')
+
+    Returns
+    -------
+    torch.Tensor
+        1D tensor of class weights with shape (num_classes,)
+    """
+    # Collect all labels from the dataset
+    labels = []
+    for i in range(len(dataset)):
+        item = dataset[i]
+        # Handle different dataset return formats
+        if isinstance(item, (list, tuple)):
+            # Assume label is the last element or second element
+            label = item[-1] if len(item) == 2 else item[1]
+        else:
+            label = item
+
+        # Convert to numpy if tensor
+        if torch.is_tensor(label):
+            label = label.numpy()
+
+        # Flatten and append
+        labels.extend(label.flatten().tolist() if hasattr(label, 'flatten') else [label])
+
+    # Count class occurrences
+    labels = np.array(labels)
+    class_counts = np.bincount(labels.astype(int), minlength=num_classes)
+
+    # Compute weights: inverse of class frequency
+    # weight_i = total_samples / (num_classes * count_i)
+    total_samples = len(labels)
+    weights = total_samples / (num_classes * class_counts)
+
+    # Convert to tensor
+    weights_tensor = torch.tensor(weights, dtype=torch.float32, device=device)
+
+    print(f"Class distribution: {class_counts}")
+    print(f"Class weights: {weights}")
+    print(f"Imbalance ratio: {class_counts.max() / class_counts.min():.2f}:1")
+
+    return weights_tensor
+
+
 def grid_search(args):
     """
     Wrapper around sklearn's parameter grid. Mends

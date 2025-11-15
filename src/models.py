@@ -72,7 +72,8 @@ class TransformerEncoderNetwork(pl.LightningModule):
         )
         self.automatic_optimization = False
         self.algorithm_args = args
-        self.criterion = get_loss(args['loss'])
+        class_weights = args.get('class_weights', None)
+        self.criterion = get_loss(args['loss'], class_weights=class_weights)
         self.output_activation = get_activation(args['output_activation'])
         self.metrics = init_metrics(args['metrics'], args)
         self.val_metrics = init_metrics(args['metrics'], args)
@@ -202,7 +203,8 @@ class DownstreamMLP(pl.LightningModule):
         # ========
         self.automatic_optimization = False
         self.algorithm_args = args
-        self.criterion = get_loss(args['loss'])
+        class_weights = args.get('class_weights', None)
+        self.criterion = get_loss(args['loss'], class_weights=class_weights)
         self.output_activation = get_activation(args['output_activation'])
         self.metrics = init_metrics(args['metrics'], args)
         self.val_metrics = init_metrics(args['metrics'], args)
@@ -369,7 +371,9 @@ class MultiPairDownstreamMLP(pl.LightningModule):
             output_dim=args['output_dim']
         )
 
-        self.criterion = get_loss(args['loss'])
+        # Get class weights if provided
+        class_weights = args.get('class_weights', None)
+        self.criterion = get_loss(args['loss'], class_weights=class_weights)
         self.output_activation = get_activation(args['output_activation'])
         self.metrics = init_metrics(args['metrics'], args)
         self.val_metrics = init_metrics(args['metrics'], args)
@@ -548,7 +552,8 @@ class MLP(pl.LightningModule):
         )
         self.automatic_optimization = False
         self.algorithm_args = args
-        self.criterion = get_loss(args['loss'])
+        class_weights = args.get('class_weights', None)
+        self.criterion = get_loss(args['loss'], class_weights=class_weights)
         self.output_activation = get_activation(args['output_activation'])
         self.metrics = init_metrics(args['metrics'], args)
         self.val_metrics = init_metrics(args['metrics'], args)
@@ -626,7 +631,8 @@ class DLBaseline(pl.LightningModule):
                 if 'seq_operation' in args else None
         self.automatic_optimization = False
         self.algorithm_args = args
-        self.criterion = get_loss(args['loss'])
+        class_weights = args.get('class_weights', None)
+        self.criterion = get_loss(args['loss'], class_weights=class_weights)
         self.output_activation = get_activation(args['output_activation'])
         self.metrics = init_metrics(args['metrics'], args)
         self.val_metrics = init_metrics(args['metrics'], args)
@@ -1238,7 +1244,7 @@ class ModuleListWithForward(torch.nn.ModuleList):
 
 
 class LossList:
-    def __init__(self, fct_name_list):
+    def __init__(self, fct_name_list, class_weights=None):
         '''Callable loss function list
 
         Each function in fct list is expected to receive target,prediction
@@ -1247,10 +1253,13 @@ class LossList:
         Parameters
         ----------
         fct_name_list (list of str)
+        class_weights (torch.Tensor, optional): Class weights for handling imbalanced datasets.
+            Should be a 1D tensor with length equal to number of classes.
 
         '''
         if type(fct_name_list)!=list:
             fct_name_list = [fct_name_list]
+        self.class_weights = class_weights
         self.fct_list = []
         for loss_name in fct_name_list:
             if loss_name == 'CrossEntropyLoss':
@@ -1320,6 +1329,9 @@ class LossList:
                 if len(y.shape)==len(y_hat.shape):
                     # reshape required if target provided in probabilities
                     y = einops.rearrange(y, 'N S C -> N C S')
+            # Pass class weights to cross_entropy if available
+            if loss_fct==torch.nn.functional.cross_entropy and self.class_weights is not None:
+                return loss_fct(y_hat, y, weight=self.class_weights, reduction=reduction)
             return loss_fct(y_hat, y, reduction=reduction)
         losses = []
         for i, loss_fct in enumerate(self.fct_list):
@@ -1332,7 +1344,11 @@ class LossList:
                 if len(y.shape)==len(y_hat.shape):
                     # reshape required if target provided in probabilities
                     y = einops.rearrange(y, 'N S C -> N C S')
-            losses.append(loss_fct(y_hat, y, reduction=reduction))
+            # Pass class weights to cross_entropy if available
+            if loss_fct==torch.nn.functional.cross_entropy and self.class_weights is not None:
+                losses.append(loss_fct(y_hat, y, weight=self.class_weights, reduction=reduction))
+            else:
+                losses.append(loss_fct(y_hat, y, reduction=reduction))
         return sum(losses)
 
 
@@ -1455,8 +1471,8 @@ class ExponentialSchedule(torch.optim.lr_scheduler._LRScheduler):
             param_group['lr'] = lr
 
 
-def get_loss(loss_name):
-    return LossList(loss_name)
+def get_loss(loss_name, class_weights=None):
+    return LossList(loss_name, class_weights=class_weights)
 
 
 def get_activation(activation_name):

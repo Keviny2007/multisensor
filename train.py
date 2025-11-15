@@ -150,10 +150,20 @@ def train(config, ds_path=None, loso=False):
             else:
                 check_val_every_n_epoch = int(val_check_interval)
                 val_check_interval = 1.0
+            # Compute class weights for handling imbalanced datasets
+            print('Computing class weights from training data...')
+            device = 'cuda' if len(config.NUM_GPUS) > 0 and torch.cuda.is_available() else 'cpu'
+            class_weights = src.utils.compute_class_weights(
+                dataset=train_ds,
+                num_classes=config.num_classes,
+                device=device
+            )
+
             args.update({'input_dim': dataset.feature_dim,
                          'output_dim': dataset.output_shapes,
                          'total_step_count': total_step_count,
-                         'sequence_length': ds_args['sequence_length']})
+                         'sequence_length': ds_args['sequence_length'],
+                         'class_weights': class_weights})
             print('Create the model')
             model = src.models.get_model(
                 algorithm_name=config.ALGORITHM,
