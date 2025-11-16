@@ -26,17 +26,19 @@ def compute_class_weights(dataset, num_classes, device='cpu'):
 
     Returns
     -------
-    torch.Tensor
+    torch.Tensor or None
         1D tensor of class weights with shape (num_classes,)
+        Returns None if some classes have no samples in the dataset
     """
     # Collect all labels from the dataset
     labels = []
+
     for i in range(len(dataset)):
         item = dataset[i]
         # Handle different dataset return formats
         if isinstance(item, (list, tuple)):
-            # Assume label is the last element or second element
-            label = item[-1] if len(item) == 2 else item[1]
+            # Assume label is always the last element
+            label = item[-1]
         else:
             label = item
 
@@ -49,16 +51,58 @@ def compute_class_weights(dataset, num_classes, device='cpu'):
 
     # Count class occurrences
     labels = np.array(labels)
-    class_counts = np.bincount(labels.astype(int), minlength=num_classes)
+
+    # Filter out negative labels (padding/ignore values)
+    # Common padding values are -1, -100, etc.
+    valid_labels = labels[labels >= 0]
+
+    if len(valid_labels) == 0:
+        raise ValueError("No valid (non-negative) labels found in the dataset")
+
+    # Check if labels are within expected range [0, num_classes-1]
+    max_label = valid_labels.max()
+    min_label = valid_labels.min()
+    if max_label >= num_classes:
+        print(f"ERROR: Dataset contains labels up to {max_label}, but model expects only {num_classes} classes")
+        print(f"Label range in dataset: [{min_label}, {max_label}]")
+        print(f"Expected label range: [0, {num_classes-1}]")
+        print(f"Unique labels in dataset: {np.unique(valid_labels)}")
+        print(f"\nThis likely means you need to configure label mapping in your config file.")
+        print(f"Add a 'replace_classes' mapping to convert the {max_label+1} original classes to {num_classes} classes.")
+        raise ValueError(f"Label mismatch: dataset has labels 0-{max_label}, but model expects {num_classes} classes (0-{num_classes-1})")
+
+    class_counts = np.bincount(valid_labels.astype(int), minlength=num_classes)
 
     # Compute weights: inverse of class frequency
     # weight_i = total_samples / (num_classes * count_i)
-    total_samples = len(labels)
+    total_samples = len(valid_labels)
+
+    # Check if any classes have zero samples
+    missing_classes = np.where(class_counts == 0)[0]
+    if len(missing_classes) > 0:
+        print(f"Warning: Classes {missing_classes.tolist()} have no samples in training data")
+        print("Class weighting will be disabled for this fold")
+        return None
+
+    # Compute balanced weights using sklearn's approach
+    # weight_i = total_samples / (num_classes * count_i)
     weights = total_samples / (num_classes * class_counts)
 
     # Convert to tensor
     weights_tensor = torch.tensor(weights, dtype=torch.float32, device=device)
 
+    # Validate weights - check for inf, nan, or invalid values
+    if torch.isinf(weights_tensor).any() or torch.isnan(weights_tensor).any():
+        print(f"Warning: Class weights contain inf or nan values")
+        print(f"Class counts: {class_counts}")
+        print(f"Computed weights: {weights}")
+        print("Class weighting will be disabled for this fold")
+        return None
+
+    num_invalid = len(labels) - len(valid_labels)
+    if num_invalid > 0:
+        print(f"Filtered out {num_invalid} invalid/padding labels (negative values)")
+    print(f"Valid samples: {total_samples}")
     print(f"Class distribution: {class_counts}")
     print(f"Class weights: {weights}")
     print(f"Imbalance ratio: {class_counts.max() / class_counts.min():.2f}:1")

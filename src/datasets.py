@@ -1621,13 +1621,6 @@ class MultiPairSTFTDataset(HARDataset):
 
     def collate_fn(self, data):
         '''Custom collate_fn for MultiPair data: (pair1, pair2, y) tuples'''
-        print(f"DEBUG: MultiPairSTFTDataset.collate_fn called!")
-        print(f"  Batch size: {len(data)}")
-        print(f"  First item type: {type(data[0])}, length: {len(data[0])}")
-        if len(data[0]) >= 1:
-            print(f"  data[0][0] shape (pair1): {data[0][0].shape}")
-        if len(data[0]) >= 2:
-            print(f"  data[0][1] shape (pair2): {data[0][1].shape}")
         # data is a list of (pair1, pair2, y) tuples
         pair1 = torch.nn.utils.rnn.pad_sequence([d[0] for d in data],
                                                 batch_first=True,
@@ -1642,7 +1635,6 @@ class MultiPairSTFTDataset(HARDataset):
         mask = torch.ones(y.shape[:2])
         for i in range(len(mask)):
             mask[i][len(data[i][2]):] = 0.0
-        print(f"  Returning: pair1 {pair1.shape}, pair2 {pair2.shape}, y {y.shape}, mask {mask.shape}")
         return [pair1, pair2, y, mask]
 
 

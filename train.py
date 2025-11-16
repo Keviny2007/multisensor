@@ -62,6 +62,7 @@ def train(config, ds_path=None, loso=False):
     # Iterate over all dataset configs if given
     for ds_args in src.utils.grid_search(config.DATASET_ARGS):
         print(f'Dataset arguments: {ds_args}', flush=True)
+        print(f"DEBUG: windowed_labels_kind = {ds_args.get('windowed_labels_kind')}, type={type(ds_args.get('windowed_labels_kind'))}")
         # Iterate over all model configs if given
         for args in src.utils.grid_search(config.ALGORITHM_ARGS):
             ######### Train with given args ##########
@@ -150,17 +151,37 @@ def train(config, ds_path=None, loso=False):
             else:
                 check_val_every_n_epoch = int(val_check_interval)
                 val_check_interval = 1.0
+            # Determine actual number of output classes for the model
+            # Use output_dim from args if explicitly set, otherwise use dataset.output_shapes
+            print(f"DEBUG: config.num_classes={config.num_classes}")
+            print(f"DEBUG: dataset.output_shapes={dataset.output_shapes}")
+            print(f"DEBUG: args.get('output_dim')={args.get('output_dim')}")
+
+            if 'output_dim' in args and args['output_dim'] is not None:
+                actual_num_classes = args['output_dim']
+            else:
+                actual_num_classes = dataset.output_shapes
+
             # Compute class weights for handling imbalanced datasets
-            print('Computing class weights from training data...')
+            print(f'Computing class weights from training data...')
+            print(f'Using actual_num_classes={actual_num_classes}')
             device = 'cuda' if len(config.NUM_GPUS) > 0 and torch.cuda.is_available() else 'cpu'
             class_weights = src.utils.compute_class_weights(
                 dataset=train_ds,
-                num_classes=config.num_classes,
+                num_classes=actual_num_classes,
                 device=device
             )
+            if class_weights is not None:
+                print(f"Class weighting enabled with {actual_num_classes} classes")
+            else:
+                print(f"Class weighting disabled")
 
-            args.update({'input_dim': dataset.feature_dim,
-                         'output_dim': dataset.output_shapes,
+            # Update args with input/output dimensions
+            # Only set output_dim if it wasn't already specified in config
+            args.update({'input_dim': dataset.feature_dim})
+            if 'output_dim' not in args or args['output_dim'] is None:
+                args['output_dim'] = dataset.output_shapes
+            args.update({
                          'total_step_count': total_step_count,
                          'sequence_length': ds_args['sequence_length'],
                          'class_weights': class_weights})

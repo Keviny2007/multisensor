@@ -1331,7 +1331,9 @@ class LossList:
                     y = einops.rearrange(y, 'N S C -> N C S')
             # Pass class weights to cross_entropy if available
             if loss_fct==torch.nn.functional.cross_entropy and self.class_weights is not None:
-                return loss_fct(y_hat, y, weight=self.class_weights, reduction=reduction)
+                # Move weights to same device as input tensors
+                weights = self.class_weights.to(y_hat.device)
+                return loss_fct(y_hat, y, weight=weights, reduction=reduction)
             return loss_fct(y_hat, y, reduction=reduction)
         losses = []
         for i, loss_fct in enumerate(self.fct_list):
@@ -1346,7 +1348,9 @@ class LossList:
                     y = einops.rearrange(y, 'N S C -> N C S')
             # Pass class weights to cross_entropy if available
             if loss_fct==torch.nn.functional.cross_entropy and self.class_weights is not None:
-                losses.append(loss_fct(y_hat, y, weight=self.class_weights, reduction=reduction))
+                # Move weights to same device as input tensors
+                weights = self.class_weights.to(y_hat.device)
+                losses.append(loss_fct(y_hat, y, weight=weights, reduction=reduction))
             else:
                 losses.append(loss_fct(y_hat, y, reduction=reduction))
         return sum(losses)
